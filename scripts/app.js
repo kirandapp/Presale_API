@@ -1,81 +1,226 @@
 const express = require('express');
 const Web3 = require('web3').Web3;
-const contractABI = require('../ABI/Presale_Private_Contract_ABI.json'); 
 const mongoose = require('mongoose');
-const PresaleModel = require('../Models/PresaleModel.js');
+const Presale = require('../Models/PresaleSchema.js'); // Adjust the path to your model
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-const providerUrl = 'https://bsc-dataseed.binance.org';
-const web3 = new Web3(providerUrl);
-const contractAddress = '0x655dEA3a6EC20624088e0a2D4607729814AB22f6'; // Replace with your contract address
-const contract = new web3.eth.Contract(contractABI, contractAddress);
+// Connect to MongoDB
 
-const mongoUrl = 'mongodb+srv://kiranjhaspearmint:C3QsAF5t1y21OX7n@cluster0.hmitvuc.mongodb.net/?retryWrites=true&w=majority'; // Replace with your MongoDB URL
+const mongoUrl = "mongodb+srv://kiranjhaspearmint:C3QsAF5t1y21OX7n@cluster0.hmitvuc.mongodb.net/?retryWrites=true&w=majority";
 mongoose.connect(mongoUrl, { useNewUrlParser: true, useUnifiedTopology: true });
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
-
-function convertBigIntToString(obj) {
-    if (typeof obj === 'object' && obj !== null) {
-      if (Array.isArray(obj)) {
-        return obj.map(convertBigIntToString);
-      } else {
-        const newObj = {};
-        for (const key in obj) {
-          newObj[key] = convertBigIntToString(obj[key]);
-        }
-        return newObj;
-      }
-    } else if (typeof obj === 'bigint') {
-      return obj.toString();
-    } else {
-      return obj;
-    }
-}
 
 app.get('/', async (req, res) => {
   res.json({ message: 'Welcome to the Presale API!' });
 });
 
-app.get('/getPresaleCount', async (req, res) => {
-    try {
-        const count = await contract.methods.getPresaleCount().call();
-        res.json({ count: Number(count) });
-    } catch (error) {
-        res.status(500).json({ error: 'Error calling function' });
+app.get('/api/update', async (req, res) => {
+  try {
+    const RPC_URL = 'https://bsc-dataseed.binance.org'; // Adjust the RPC URL
+    const SALE_ABI = require('../ABI/Presale_Private_Contract_ABI.json'); // Adjust the path to your ABI file
+    const sale_address = '0x655dEA3a6EC20624088e0a2D4607729814AB22f6'; // Adjust the contract address 
+    //  0x03bbed798937Fc75CA0c96f4FbCf7F701aa7De9b
+    //  0x655dEA3a6EC20624088e0a2D4607729814AB22f6
+    let _web3 = new Web3(RPC_URL);
+    let _privateSaleContract = new _web3.eth.Contract(SALE_ABI, sale_address);
+    let _arraylength = await _privateSaleContract.methods.getPresaleCount().call();
+    let _arrayLength = Number(_arraylength);
+    console.log("_arrayLength ----> ",_arrayLength);
+
+    let _upcomingArray = [];
+    let _liveArray = [];
+    let _successArray = [];
+    let _failArray = [];
+
+     
+    const preSaleCalls = []
+    for (let i = 0; i < _arrayLength; i++) {
+        preSaleCalls.push(_privateSaleContract.methods.getPresale(i).call());    
     }
+    
+    const totalPresaleData = await Promise.all(preSaleCalls);
+    console.log("totalPresaleData", totalPresaleData.length);
+
+    for (let i = 0; i < totalPresaleData.length; i++) {
+
+        console.log(">>>>>>>>------------<<<<<<<<<");
+
+        const _presale = totalPresaleData[i];
+        // console.log("presaleINfo", i, _presale);
+        const preSaleStatus = Number(_presale.status);
+        const preSaleStartTime = Number(_presale.startTime);
+
+        console.log("status", preSaleStatus);
+        console.log("time", preSaleStartTime);
+
+      if (preSaleStatus == 1 && preSaleStartTime > parseInt(Date.now()/1000)) {
+        _upcomingArray.push(i);
+      } else if (preSaleStatus == 1 && preSaleStartTime < parseInt(Date.now()/1000)) {
+        _liveArray.push(i);
+      } else if ([2, 4, 5, 6].includes(preSaleStatus)) {
+        _successArray.push(i);
+      } else if (preSaleStatus == 3 && _presale.raisedAmount > 0) {
+        _failArray.push(i);
+      }
+
+     
+    //   if (i == (totalPresaleData.length - 1)) {
+    //     if (_upcomingArray.length > 0) {
+    //       const upcoming = await WIO_Wizard.updateMany({ key: "_upcoming" }, { value: _upcomingArray.reverse().join(",") });
+    //       console.log("upcoming data ",upcoming);
+    //     }
+
+    //     if (_liveArray.length > 0) {
+    //       const live = await WIO_Wizard.updateMany({ key: "_live" }, { value: _liveArray.reverse().join(",") });
+    //       console.log("live data ",live);
+    //     }
+
+    //     if (_successArray.length > 0) {
+    //       const success = await WIO_Wizard.updateMany({ key: "_success" }, { value: _successArray.reverse().join(",") });
+    //       console.log("succrss  data ",success);
+    //     }
+
+    //     if (_failArray.length > 0) {
+    //       await WIO_Wizard.updateMany({ key: "_fail" }, { value: _failArray.reverse().join(",") });
+    //     }
+
+    //     res.json({ message: 'Data updated successfully.' });
+    //   }
+
+    // return res.json({succ: true})
+    }
+
+    console.log("_upcomingArray", _upcomingArray);
+    console.log("_liveArray", _liveArray);
+    console.log("_successArray", _successArray);
+    console.log("_failArray", _failArray);
+    // const presaleData = new PresaleModel({ preSaleType:"upComingSales", _upcomingArray });
+    //       await presaleData.save();
+    //       console.log("data saved");
+
+    const upComingSales = await Presale.findOne({preSaleType: "upComingSales"});
+    if (upComingSales) {
+        const oldSale = upComingSales.preSales;
+        const mergeSales = new Set([...oldSale, ..._upcomingArray])
+        console.log("mergeSales", mergeSales);
+        upComingSales.preSales = Array.from(mergeSales)
+        await upComingSales.save()
+    }
+    else {
+        const preSaleData = {
+            preSaleType: "upComingSales",
+            preSales: _upcomingArray
+        }
+        await Presale.create(preSaleData)
+    }
+
+    const liveSales = await Presale.findOne({preSaleType: "liveSales"});
+    if (liveSales) {
+        const oldSale = liveSales.preSales;
+        const mergeSales = new Set([...oldSale, ..._liveArray])
+        console.log("mergeSales", mergeSales);
+        liveSales.preSales = Array.from(mergeSales)
+        await liveSales.save()
+    }
+    else {
+        const preSaleData = {
+            preSaleType: "liveSales",
+            preSales: _liveArray
+        }
+        await Presale.create(preSaleData)
+    }
+
+    const successSales = await Presale.findOne({preSaleType: "successSales"});
+    if (successSales) {
+        const oldSale = successSales.preSales;
+        const mergeSales = new Set([...oldSale, ..._successArray])
+        console.log("mergeSales", mergeSales);
+        successSales.preSales = Array.from(mergeSales)
+        await successSales.save()
+    }
+    else {
+        const preSaleData = {
+            preSaleType: "successSales",
+            preSales: _successArray
+        }
+        await Presale.create(preSaleData)
+    }
+
+    const failSales = await Presale.findOne({preSaleType: "failSales"});
+    if (failSales) {
+        const oldSale = failSales.preSales;
+        const mergeSales = new Set([...oldSale, ..._failArray])
+        console.log("mergeSales", mergeSales);
+        failSales.preSales = Array.from(mergeSales)
+        await failSales.save()
+    }
+    else {
+        const preSaleData = {
+            preSaleType: "failSales",
+            preSales: _failArray
+        }
+        await Presale.create(preSaleData)
+    }
+
+    return res.json({message: "Uptodate"});
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.get('/getPresale/:id', async (req, res) => {
-    const id = req.params.id;
-    try {
-      const count = await contract.methods.getPresaleCount().call();
-      const presaleCount = Number(count);
-      if (id >= presaleCount) {
-        return res.status(400).json({ error: 'Invalid ID. The provided ID is greater than or equal to the presale count.' });
-      }
-      // Check if the ID already exists in the database
-      const existingData = await PresaleModel.findOne({ id });
-      if (existingData) {
-        return res.json({ success: false, message: 'Presale data already exists in the database.', data: existingData.data });
-      }
-      const result = await contract.methods.getPresale(id).call();
-      const convertedResult = convertBigIntToString(result); 
+app.get('/api/upcomingSales', async(req,res) => {
 
-      // Save the data in MongoDB
-      const presaleData = new PresaleModel({ id, data: convertedResult });
-      await presaleData.save();
-      console.log("data saved");
+  const upComingSales = await Presale.findOne({preSaleType: "upComingSales"});
+  if (upComingSales) {
+    console.log("length - ",upComingSales.preSales.length);
+      return res.json({presale: upComingSales.preSales});
+  } else {
+      return res.json({message: "NOT FOUND"});
+  }
 
-      res.json({ success: true, message: 'Presale data saved successfully.', data: convertedResult });
-    } catch (error) {
-      res.status(500).json({ error: 'Error calling function' });
+})
+
+app.get('/api/liveSales', async(req,res) => {
+
+  const liveSales = await Presale.findOne({preSaleType: "liveSales"});
+    if (liveSales) {
+      console.log("length - ",liveSales.preSales.length);
+        return res.json({presale: liveSales.preSales});
+    } else {
+        return res.json({message: "NOT FOUND"});
     }
-  });
 
-// Start the server
-const port = 3000; 
-app.listen(port, () => {
-  console.log(`Server started on http://localhost:${port}`);
+})
+
+app.get('/api/successSales', async(req,res) => {
+
+  const successSales = await Presale.findOne({preSaleType: "successSales"});
+    if (successSales) {
+      console.log("length - ",successSales.preSales.length);
+        return res.json({presale: successSales.preSales});
+    } else {
+        return res.json({message: "NOT FOUND"});
+    }
+
+})
+
+app.get('/api/failSales', async(req,res) => {
+
+  const failSales = await Presale.findOne({preSaleType: "failSales"});
+    if (failSales) {
+      console.log("length - ",failSales.preSales.length);
+        return res.json({presale: failSales.preSales});
+    } else {
+        return res.json({message: "NOT FOUND"});
+    }
+
+})
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
