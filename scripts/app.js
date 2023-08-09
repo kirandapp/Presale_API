@@ -2,9 +2,13 @@ const express = require('express');
 const Web3 = require('web3').Web3;
 const mongoose = require('mongoose');
 const Presale = require('../Models/PresaleSchema.js'); // Adjust the path to your model
+const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
+app.use(cors({
+  origin: '*'
+}));
 
 // Connect to MongoDB
 
